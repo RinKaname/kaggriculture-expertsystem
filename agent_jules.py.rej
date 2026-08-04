@@ -1,0 +1,18 @@
+--- agent_jules.py
++++ agent_jules.py
+@@ -226,11 +226,11 @@
+         # Assign first 3 workers to animal chores
+         if worker_idx < 3:
+             for (px, py) in target_pastures:
+                 if px < len(farm["tiles"][0]) and py < len(farm["tiles"]):
+                     t = farm["tiles"][py][px]
+-                if isinstance(t, dict) and "animal" in t:
+-                    if (not t.get("fed_today") and inv.get("WHEAT", 0) > 0) or (not t.get("cared_today")) or (t.get("fertilizer_available", False) and sum(inv.values()) < 100) or t.get("yield_units", 0) > 0:
+-                        step_dir = get_step_towards((cx, cy), (px, py))
+-                        if step_dir: return [step_dir]
++                    if isinstance(t, dict) and "animal" in t:
++                        if (not t.get("fed_today") and inv.get("WHEAT", 0) > 0) or (not t.get("cared_today")) or (t.get("fertilizer_available", False) and sum(inv.values()) < 100) or t.get("yield_units", 0) > 0:
++                            step_dir = get_step_towards((cx, cy), (px, py))
++                            if step_dir: return [step_dir]
+
+         # Crop Actions

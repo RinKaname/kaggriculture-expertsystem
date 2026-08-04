@@ -1,4 +1,4 @@
-"""Apex Dominator: Self-Contained 8C/5S Schedule with Multi-Horizon Clone Sniping & Terminal Liquidation."""
+"""Kaggriculture-AgriSchemer-V1: 8C/5S Strategy with Multi-Horizon Clone Sniping & Terminal Liquidation."""
 import copy
 import json
 import base64

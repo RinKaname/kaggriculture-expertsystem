@@ -9,7 +9,7 @@ total_reward = 0
 while not done and steps < 10: # Just test a few steps
     # Just take random actions to test stability
     action = env.action_space.sample()
-    obs, reward, done, info = env.step(action)
+    obs, reward, done, truncated, info = env.step(action)
     total_reward += reward
     steps += 1
 

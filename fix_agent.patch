@@ -1,0 +1,30 @@
+--- agent_jules.py
++++ agent_jules.py
+@@ -79,7 +79,7 @@
+         target_workers = 6 if quads == 1 else (8 if quads == 2 else 12)
+         current_workers = 1 + len(farm.get("hands", []))
+-        if hour <= 4 and target_workers > current_workers and money >= 10:
++        if hour == 0 and target_workers > current_workers and money >= 10:
+             hires_to_make = min(2, target_workers - current_workers)
+             if hires_to_make > 0:
+                 for _ in range(hires_to_make):
+                     market_orders.append(["HIRE"])
+@@ -226,11 +226,10 @@
+
+         # Assign first 3 workers to animal chores
+         if worker_idx < 3:
+-            if sum(inv.values()) == 0:
+-                for (px, py) in target_pastures:
+-                    if px < len(farm["tiles"][0]) and py < len(farm["tiles"]):
+-                        t = farm["tiles"][py][px]
+-                        if isinstance(t, dict) and "animal" in t:
+-                            if (not t.get("fed_today") and inv.get("WHEAT", 0) > 0) or (not t.get("cared_today")) or (t.get("fertilizer_available", False) and sum(inv.values()) < 100) or t.get("yield_units", 0) > 0:
+-                                step_dir = get_step_towards((cx, cy), (px, py))
+-                                if step_dir: return [step_dir]
++            for (px, py) in target_pastures:
++                if px < len(farm["tiles"][0]) and py < len(farm["tiles"]):
++                    t = farm["tiles"][py][px]
++                    if isinstance(t, dict) and "animal" in t:
++                        if (not t.get("fed_today") and inv.get("WHEAT", 0) > 0) or (not t.get("cared_today")) or (t.get("fertilizer_available", False) and sum(inv.values()) < 100) or t.get("yield_units", 0) > 0:
++                            step_dir = get_step_towards((cx, cy), (px, py))
++                            if step_dir: return [step_dir]

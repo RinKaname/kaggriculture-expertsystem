@@ -1,0 +1,24 @@
+# Secrets & sensitive keys
+KaggleKey.txt
+*.key
+*.token
+*.secret
+.kaggle/
+
+# Virtual environment & Python cache
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# SQLite & Large artifact files
+*.db
+*.sqlite3
+replays/
+agent logs/
+notebook_dump.txt
+kaggriculture-data/

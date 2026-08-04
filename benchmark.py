@@ -29,6 +29,13 @@ try:
 except Exception:
     pass
 
+try:
+    import agent_c27
+    EXTRA_OPPONENTS["c27"] = agent_c27.agent
+    EXTRA_OPPONENTS["agent_c27"] = agent_c27.agent
+except Exception:
+    pass
+
 
 def print_ascii_histogram(data, bins=5, title="Score Distribution"):
     if not data or len(data) < 2:

@@ -31,11 +31,11 @@ class ApexGrandmasterAgent:
         # Best Parameters Found via 150-Trial Bayesian Optimization
         self.p = {
             "sell_thresh": 0.65,
-            "straw_target": 20,
-            "melon_target": 15,
-            "melon_cutoff_day": 17,
-            "max_animals_quad2": 10,
-            "animal_cutoff_day": 14,
+            "straw_target": 999, # 8C/5S Blueprint: plant as many as possible
+            "melon_target": 999, # 8C/5S Blueprint: plant as many as possible
+            "melon_cutoff_day": 10, # 8C/5S Blueprint: Melons only until Day 10
+            "max_cows": 8, # 8C/5S Blueprint: 8 Cows
+            "max_sheep": 5, # 8C/5S Blueprint: 5 Sheep
             "animal_min_cash": 900,
             "feed_buffer_per_animal": 2,
             "tiles_per_worker": 5.0,
@@ -48,7 +48,7 @@ class ApexGrandmasterAgent:
             "sell_batch_size": 6,
             "emergency_shed_cap": 70,
             "endgame_liquidation_day": 27,
-            "strawberry_start_day": 8,
+            "strawberry_start_day": 10, # 8C/5S Blueprint: Pivot to Strawberries at Day 10
             "fert_start_day": 6
         }
 
@@ -93,9 +93,11 @@ class ApexGrandmasterAgent:
         inv_animals = sum(inv.get("COW", 0) + inv.get("SHEEP", 0) for inv in inventories)
         total_animals = placed_animals + shed_animals + inv_animals
 
-        # --- 1. Continuous Paced Selling ---
+        # --- 1. Price-Aware Selling & Terminal Liquidation ---
+        step = obs.get("step", 0)
         total_shed_items = sum(shed.values())
-        is_emergency_dump = (total_shed_items >= self.p["emergency_shed_cap"]) or (day >= self.p["endgame_liquidation_day"]) or (money < 150 and day < 14)
+        is_terminal = step >= 710
+        is_emergency_dump = (total_shed_items >= self.p["emergency_shed_cap"]) or is_terminal or (money < 150 and day < 14)
 
         for item, count in shed.items():
             if count <= 0 or item not in PRODUCTS:
@@ -106,23 +108,25 @@ class ApexGrandmasterAgent:
             cur_p = prices.get(item, 1)
             base_p = 100 if item == "FERTILIZER" else (160 if item == "MILK" else (200 if item == "WOOL" else CROPS.get(item, {}).get("base_price", 50)))
             
+            # High price threshold for mid-game selling (e.g. wait for town shop or low supply)
             thresh = 0.40 if (item == "FERTILIZER" or day < 8) else (self.p["milk_wool_thresh"] if item in ["MILK", "WOOL"] else self.p["sell_thresh"])
             
             if is_emergency_dump or cur_p >= (base_p * thresh):
-                sell_qty = count if (is_emergency_dump or item == "FERTILIZER" or day >= 28) else min(count, self.p["sell_batch_size"])
+                # Liquidate entirely if terminal or emergency, else paced batch selling
+                sell_qty = count if (is_emergency_dump or is_terminal or item == "FERTILIZER" or day >= 28) else min(count, self.p["sell_batch_size"])
                 if sell_qty > 0 and len(market_orders) < 10:
                     market_orders.append(["SELL", item, sell_qty])
 
-        # --- 2. Dynamic Land Expansion ---
-        if len(unlocked_quads) == 1 and money >= 1050 and day <= self.p["quad2_day_cutoff"] and len(market_orders) < 10:
+        # --- 2. Strict Timed Land Expansion ---
+        if len(unlocked_quads) == 1 and day >= 7 and money >= 1000 and len(market_orders) < 10:
             market_orders.append(["BUY_LAND"])
-        elif len(unlocked_quads) == 2 and money >= 2050 and day <= self.p["quad3_day_cutoff"] and len(market_orders) < 10:
-            market_orders.append(["BUY_LAND"])
-        elif self.p["quad4_enable"] and len(unlocked_quads) == 3 and money >= 4100 and day <= 22 and len(market_orders) < 10:
+        elif len(unlocked_quads) == 2 and day >= 10 and money >= 2000 and len(market_orders) < 10:
             market_orders.append(["BUY_LAND"])
 
         # --- 3. Worker Fleet Scaling ---
+        max_workers = 12
         needed_workers = max(5, math.ceil(num_tiles / self.p["tiles_per_worker"]) + (2 if placed_animals > 0 else 0))
+        needed_workers = min(needed_workers, max_workers)
         current_workers = 1 + len(farm.get("hands", []))
         if current_workers < needed_workers and hour <= self.p["hire_cutoff_hour"] and money >= 10:
             hires_to_make = min(2, needed_workers - current_workers)
@@ -139,10 +143,18 @@ class ApexGrandmasterAgent:
                 market_orders.append(["BUY_PRODUCT", "WHEAT", buy_amt])
 
         # --- 5. Livestock Scaling ---
-        max_target_animals = 4 if len(unlocked_quads) == 1 else (self.p["max_animals_quad2"] if len(unlocked_quads) == 2 else 14)
-        if total_animals < max_target_animals and money >= self.p["animal_min_cash"] and day <= self.p["animal_cutoff_day"]:
-            a_type = "SHEEP" if (total_animals % 2 == 1) else "COW"
-            if len(market_orders) < 10 and (shed.get(a_type, 0) == 0):
+        cows_owned = sum(1 for (px, py) in target_pastures if px < len(farm["tiles"][0]) and py < len(farm["tiles"]) and isinstance(farm["tiles"][py][px], dict) and farm["tiles"][py][px].get("animal") == "COW") + shed.get("COW", 0) + sum(inv.get("COW", 0) for inv in inventories)
+        sheep_owned = sum(1 for (px, py) in target_pastures if px < len(farm["tiles"][0]) and py < len(farm["tiles"]) and isinstance(farm["tiles"][py][px], dict) and farm["tiles"][py][px].get("animal") == "SHEEP") + shed.get("SHEEP", 0) + sum(inv.get("SHEEP", 0) for inv in inventories)
+
+        # 8 Cows and 5 Sheep limit. No animal cutoff day.
+        if money >= self.p["animal_min_cash"]:
+            a_type = None
+            if cows_owned < self.p["max_cows"]:
+                a_type = "COW"
+            elif sheep_owned < self.p["max_sheep"]:
+                a_type = "SHEEP"
+
+            if a_type and len(market_orders) < 10 and (shed.get(a_type, 0) == 0):
                 market_orders.append(["BUY_ANIMAL", a_type, 1])
 
         # --- 6. Seed Economy & Crop Matrix ---
@@ -155,21 +167,21 @@ class ApexGrandmasterAgent:
         safety_margin = 150 + (1000 if len(unlocked_quads) == 1 and day >= 6 else 0)
         spendable_money = max(0, money - safety_margin)
 
-        # Strawberry Matrix
-        straw_target_cap = self.p["straw_target"] if num_tiles >= 75 else (20 if num_tiles >= 50 else 4)
-        if self.p["strawberry_start_day"] <= day <= 16 and (active_strawberries + held_straw_seeds) < straw_target_cap and spendable_money >= 100:
-            s_buy = min(straw_target_cap - (active_strawberries + held_straw_seeds), 4, int(spendable_money // 100))
-            if s_buy > 0 and len(market_orders) < 10:
-                market_orders.append(["BUY_SEED", "STRAWBERRY", s_buy])
-                spendable_money -= s_buy * 100
-
-        # Melon Engine
-        melon_target_cap = self.p["melon_target"] if num_tiles >= 75 else 10
-        if day <= self.p["melon_cutoff_day"] and (active_melons + held_melon_seeds) < melon_target_cap and spendable_money >= 80:
-            m_buy = min(melon_target_cap - (active_melons + held_melon_seeds), 4, int(spendable_money // 80))
+        # Melon Engine (Early Game)
+        target_melons = min(self.p["melon_target"], num_tiles)
+        if day < self.p["melon_cutoff_day"] and (active_melons + held_melon_seeds) < target_melons and spendable_money >= 80:
+            m_buy = min(target_melons - (active_melons + held_melon_seeds), 4, int(spendable_money // 80))
             if m_buy > 0 and len(market_orders) < 10:
                 market_orders.append(["BUY_SEED", "MELON", m_buy])
                 spendable_money -= m_buy * 80
+
+        # Strawberry Matrix (Mid/Late Game Pivot)
+        target_straws = min(self.p["straw_target"], num_tiles)
+        if day >= self.p["strawberry_start_day"] and (active_strawberries + held_straw_seeds) < target_straws and spendable_money >= 100:
+            s_buy = min(target_straws - (active_strawberries + held_straw_seeds), 4, int(spendable_money // 100))
+            if s_buy > 0 and len(market_orders) < 10:
+                market_orders.append(["BUY_SEED", "STRAWBERRY", s_buy])
+                spendable_money -= s_buy * 100
 
         # Supporting Wheat
         empty_crop_tiles = sum(1 for (x, y) in crop_tiles if farm["tiles"][y][x] is None)
@@ -219,9 +231,17 @@ class ApexGrandmasterAgent:
                             if step: return [step]
 
         if is_shed_adj:
+            has_drops = False
             for it in ["MILK", "WOOL", "FERTILIZER", "STRAWBERRY", "MELON", "CARROT", "TOMATO"]:
-                if inv.get(it, 0) > 0: return ["PLACE", it, inv[it]]
-            if inv.get("WHEAT", 0) > 4: return ["PLACE", "WHEAT", inv["WHEAT"] - 2]
+                if inv.get(it, 0) > 0:
+                    has_drops = True
+                    break
+            if inv.get("WHEAT", 0) > 4:
+                has_drops = True
+
+            if has_drops:
+                return ["DROP"]
+
             for a_type in ["COW", "SHEEP"]:
                 if shed.get(a_type, 0) > 0 and inv.get(a_type, 0) == 0: return ["PICKUP", a_type, 1]
             if inv.get("WHEAT", 0) < 3 and shed.get("WHEAT", 0) > 0 and hour <= 12:
@@ -266,7 +286,7 @@ class ApexGrandmasterAgent:
             
             elif current_tile is None and day < 27:
                 seeds = private.get("seeds", {})
-                for c in ["STRAWBERRY", "MELON", "WHEAT", "CARROT", "TOMATO"]:
+                for c in ["STRAWBERRY", "MELON", "WHEAT"]: # Removed CARROT and TOMATO
                     if seeds.get(c, 0) > 0: return ["PLANT", c]
 
         has_produce = any(inv.get(it, 0) > 0 for it in ["MILK", "WOOL", "FERTILIZER", "STRAWBERRY", "MELON", "CARROT", "TOMATO"])

@@ -1,6 +1,6 @@
 from src.neurosymbolic_env import KaggricultureNeurosymbolicEnv
 env = KaggricultureNeurosymbolicEnv(opponent="main.py")
-obs, _ = env.reset()
+obs = env.reset()
 print(f"Initial Observation: {obs}")
 
 done = False

@@ -47,15 +47,12 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         from Archive.baseline import ApexGrandmasterAgent
         self.symbolic_engine = ApexGrandmasterAgent()
 
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        from Archive.baseline import ApexGrandmasterAgent
-        self.symbolic_engine = ApexGrandmasterAgent()
+    def reset(self):
         # Initialize Kaggle environment with the "Final Boss" opponent
         self.trainer = self.kaggle_env.train([None, self.opponent])
         raw_obs = self.trainer.reset()
         self.current_state = raw_obs
-        return self._extract_features(raw_obs), {}
+        return self._extract_features(raw_obs)
 
     def _extract_features(self, raw_obs):
         """
@@ -191,9 +188,9 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
             self.symbolic_engine.p["strawberry_start_day"] = 0 # Plant strawberries immediately
             self.symbolic_engine.p["melon_cutoff_day"] = 0 # Disable melons
         elif action == 3: # BUY_COW
-            self.symbolic_engine.p["max_cows"] = 8 # Force engine to prioritize cows
+            self.symbolic_engine.p["max_cows"] = 20 # Force engine to prioritize cows
         elif action == 4: # BUY_SHEEP
-            self.symbolic_engine.p["max_sheep"] = 5 # Force engine to prioritize sheep
+            self.symbolic_engine.p["max_sheep"] = 20 # Force engine to prioritize sheep
         elif action == 5: # BUY_LAND
             self.symbolic_engine.p["quad2_day_cutoff"] = 30 # Allow expansion anytime
         elif action == 6: # PANIC_SELL

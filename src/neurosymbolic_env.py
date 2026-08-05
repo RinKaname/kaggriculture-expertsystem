@@ -46,12 +46,15 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         from Archive.baseline import ApexGrandmasterAgent
         self.symbolic_engine = ApexGrandmasterAgent()
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        from Archive.baseline import ApexGrandmasterAgent
+        self.symbolic_engine = ApexGrandmasterAgent()
         # Initialize Kaggle environment with the "Final Boss" opponent
         self.trainer = self.kaggle_env.train([None, self.opponent])
         raw_obs = self.trainer.reset()
         self.current_state = raw_obs
-        return self._extract_features(raw_obs)
+        return self._extract_features(raw_obs), {}
 
     def _extract_features(self, raw_obs):
         """
@@ -135,9 +138,9 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
             self.symbolic_engine.p["strawberry_start_day"] = 0 # Plant strawberries immediately
             self.symbolic_engine.p["melon_cutoff_day"] = 0 # Disable melons
         elif action == 3: # BUY_COW
-            self.symbolic_engine.p["max_cows"] = 20 # Force engine to prioritize cows
+            self.symbolic_engine.p["max_cows"] = 8 # Force engine to prioritize cows
         elif action == 4: # BUY_SHEEP
-            self.symbolic_engine.p["max_sheep"] = 20 # Force engine to prioritize sheep
+            self.symbolic_engine.p["max_sheep"] = 5 # Force engine to prioritize sheep
         elif action == 5: # BUY_LAND
             self.symbolic_engine.p["quad2_day_cutoff"] = 30 # Allow expansion anytime
         elif action == 6: # PANIC_SELL
@@ -169,7 +172,8 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         # For Kaggriculture, we want to maximize our cash differential over the opponent.
         # We calculate the reward at the END of the macro-step.
         features = self._extract_features(self.current_state)
-        reward = features[2] - features[3] # My Cash - Opp Cash
+        # Scaled reward to keep policy gradients well-conditioned (in units of $1,000)
+        reward = float((features[2] - features[3]) / 1000.0)
 
         # We set truncated to False to match the gymnasium API
         truncated = False

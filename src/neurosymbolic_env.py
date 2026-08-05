@@ -34,7 +34,7 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         # 'spatial': 10x10x5 Box representing the farm grid (Channels: 0: Locked/Unlocked, 1: Weed Age, 2: Crop Age, 3: Animal Presence, 4: Worker Presence)
         self.observation_space = spaces.Dict({
             "economy": spaces.Box(low=0, high=np.inf, shape=(18,), dtype=np.float32),
-            "spatial": spaces.Box(low=0, high=np.inf, shape=(10, 10, 5), dtype=np.float32)
+            "spatial": spaces.Box(low=0, high=np.inf, shape=(5, 10, 10), dtype=np.float32)
         })
 
         self.current_state = None
@@ -65,7 +65,10 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         farms = raw_obs.get("farms", [])
 
         if len(farms) < 2:
-             return np.zeros(18, dtype=np.float32)
+            return {
+                "economy": np.zeros(18, dtype=np.float32),
+                "spatial": np.zeros((5, 10, 10), dtype=np.float32)
+            }
 
         my_farm = farms[player_id]
         opp_farm = farms[1 - player_id]
@@ -119,48 +122,48 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
 
     def _extract_spatial_features(self, farm, current_day):
         """
-        Extracts a 10x10x5 tensor representing the spatial layout of the farm.
+        Extracts a (5, 10, 10) channels-first tensor representing the spatial layout of the farm.
         Channel 0: Unlocked (1) or Locked (0)
         Channel 1: Weed Age (0 if no weed)
         Channel 2: Crop Age (0 if no crop)
         Channel 3: Animal (1 if cow, 2 if sheep, 3 if goose, etc. 0 otherwise)
         Channel 4: Worker Presence (1 if worker is here, 0 otherwise)
         """
-        grid = np.zeros((10, 10, 5), dtype=np.float32)
+        grid = np.zeros((5, 10, 10), dtype=np.float32)
 
         # Populate Channels 0-3 based on tiles
         tiles = farm.get("tiles", [])
         for y, row in enumerate(tiles):
             for x, tile in enumerate(row):
-                if y >= 10 or x >= 10: continue # Safegaurd bounds
+                if y >= 10 or x >= 10: continue # Safeguard bounds
 
                 if tile != "LOCKED":
-                    grid[y, x, 0] = 1.0 # Unlocked
+                    grid[0, y, x] = 1.0 # Unlocked
 
                     if isinstance(tile, dict):
                         kind = tile.get("kind")
                         if kind == "WEED":
-                            grid[y, x, 1] = float(current_day - tile.get("planted_day", current_day))
+                            grid[1, y, x] = float(current_day - tile.get("planted_day", current_day))
                         elif kind == "PLANT":
-                            grid[y, x, 2] = float(current_day - tile.get("planted_day", current_day))
+                            grid[2, y, x] = float(current_day - tile.get("planted_day", current_day))
 
                         animal = tile.get("animal")
                         if animal == "COW":
-                            grid[y, x, 3] = 1.0
+                            grid[3, y, x] = 1.0
                         elif animal == "SHEEP":
-                            grid[y, x, 3] = 2.0
+                            grid[3, y, x] = 2.0
                         elif animal: # generic other
-                            grid[y, x, 3] = 3.0
+                            grid[3, y, x] = 3.0
 
         # Populate Channel 4 for worker presence
         if "farmer" in farm:
             fx, fy = farm["farmer"]
             if 0 <= fx < 10 and 0 <= fy < 10:
-                grid[fy, fx, 4] = 1.0
+                grid[4, fy, fx] = 1.0
 
         for hx, hy in farm.get("hands", []):
             if 0 <= hx < 10 and 0 <= hy < 10:
-                grid[hy, hx, 4] = 1.0
+                grid[4, hy, hx] = 1.0
 
         return grid
 
@@ -190,6 +193,7 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         elif action == 2: # FOCUS_STRAWBERRY
             self.symbolic_engine.p["strawberry_start_day"] = 0 # Plant strawberries immediately
             self.symbolic_engine.p["melon_cutoff_day"] = 0 # Disable melons
+            self.symbolic_engine.p["straw_target"] = 6
         elif action == 3: # BUY_COW
             self.symbolic_engine.p["max_cows"] = 8 # Force engine to prioritize cows
         elif action == 4: # BUY_SHEEP
@@ -216,6 +220,7 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         # Reset the engine parameters to defaults for the next macro-step
         self.symbolic_engine.p["melon_cutoff_day"] = 10
         self.symbolic_engine.p["strawberry_start_day"] = 10
+        self.symbolic_engine.p["straw_target"] = 6
         self.symbolic_engine.p["max_cows"] = 8
         self.symbolic_engine.p["max_sheep"] = 5
         self.symbolic_engine.p["sell_thresh"] = 0.65
@@ -225,7 +230,8 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         # For Kaggriculture, we want to maximize our cash differential over the opponent.
         # We calculate the reward at the END of the macro-step.
         features = self._extract_features(self.current_state)
-        reward = features["economy"][2] - features["economy"][3] # My Cash - Opp Cash
+        # Scaled reward to keep policy gradients well-conditioned (in units of $1,000)
+        reward = float((features["economy"][2] - features["economy"][3]) / 1000.0)
 
         # We set truncated to False to match the gymnasium API
         truncated = False

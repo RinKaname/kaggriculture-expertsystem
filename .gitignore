@@ -20,5 +20,8 @@ __pycache__/
 *.sqlite3
 replays/
 agent logs/
+logs/
+*.log
 notebook_dump.txt
 kaggriculture-data/
+

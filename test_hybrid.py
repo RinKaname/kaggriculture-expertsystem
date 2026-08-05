@@ -9,6 +9,6 @@ while not done and steps < 2:
     action = env.action_space.sample()
     obs, reward, done, truncated, info = env.step(action)
     steps += 1
-    print(f"Step {steps}: Spatial Channel 0 (Unlocked) Sum = {obs['spatial'][:, :, 0].sum()}")
+    print(f"Step {steps}: economy shape={obs['economy'].shape}, spatial shape={obs['spatial'].shape}, Unlocked Sum={obs['spatial'][0, :, :].sum()}")
 
 print("Hybrid environment stepped successfully.")

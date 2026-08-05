@@ -29,12 +29,13 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         # Action Space: Discrete high-level strategic choices
         self.action_space = spaces.Discrete(NUM_MACRO_ACTIONS)
 
-        # Observation Space: A condensed 1D vector representing global economic state
-        # Expanded to 18 Dimensions:
-        # [Day, Hour, My Cash, Opp Cash, My Cows, My Sheep, Melon Price, Straw Price, Milk Price, Wool Price,
-        #  My Melons (Shed), My Strawberries (Shed), My Milk (Shed), My Wool (Shed),
-        #  My Unlocked Quads, Opp Unlocked Quads, YARN_STORE_UNLOCKED (0/1), PIZZA_SHOP_UNLOCKED (0/1)]
-        self.observation_space = spaces.Box(low=0, high=np.inf, shape=(18,), dtype=np.float32)
+        # Hybrid Observation Space:
+        # 'economy': 18D Box for global market and cash features
+        # 'spatial': 10x10x5 Box representing the farm grid (Channels: 0: Locked/Unlocked, 1: Weed Age, 2: Crop Age, 3: Animal Presence, 4: Worker Presence)
+        self.observation_space = spaces.Dict({
+            "economy": spaces.Box(low=0, high=np.inf, shape=(18,), dtype=np.float32),
+            "spatial": spaces.Box(low=0, high=np.inf, shape=(10, 10, 5), dtype=np.float32)
+        })
 
         self.current_state = None
         self.trainer = None
@@ -106,7 +107,59 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
             my_quads, opp_quads, yarn_unlocked, pizza_unlocked
         ], dtype=np.float32)
 
-        return features
+        spatial_features = self._extract_spatial_features(my_farm, day)
+
+        return {
+            "economy": features,
+            "spatial": spatial_features
+        }
+
+    def _extract_spatial_features(self, farm, current_day):
+        """
+        Extracts a 10x10x5 tensor representing the spatial layout of the farm.
+        Channel 0: Unlocked (1) or Locked (0)
+        Channel 1: Weed Age (0 if no weed)
+        Channel 2: Crop Age (0 if no crop)
+        Channel 3: Animal (1 if cow, 2 if sheep, 3 if goose, etc. 0 otherwise)
+        Channel 4: Worker Presence (1 if worker is here, 0 otherwise)
+        """
+        grid = np.zeros((10, 10, 5), dtype=np.float32)
+
+        # Populate Channels 0-3 based on tiles
+        tiles = farm.get("tiles", [])
+        for y, row in enumerate(tiles):
+            for x, tile in enumerate(row):
+                if y >= 10 or x >= 10: continue # Safegaurd bounds
+
+                if tile != "LOCKED":
+                    grid[y, x, 0] = 1.0 # Unlocked
+
+                    if isinstance(tile, dict):
+                        kind = tile.get("kind")
+                        if kind == "WEED":
+                            grid[y, x, 1] = float(current_day - tile.get("planted_day", current_day))
+                        elif kind == "PLANT":
+                            grid[y, x, 2] = float(current_day - tile.get("planted_day", current_day))
+
+                        animal = tile.get("animal")
+                        if animal == "COW":
+                            grid[y, x, 3] = 1.0
+                        elif animal == "SHEEP":
+                            grid[y, x, 3] = 2.0
+                        elif animal: # generic other
+                            grid[y, x, 3] = 3.0
+
+        # Populate Channel 4 for worker presence
+        if "farmer" in farm:
+            fx, fy = farm["farmer"]
+            if 0 <= fx < 10 and 0 <= fy < 10:
+                grid[fy, fx, 4] = 1.0
+
+        for hx, hy in farm.get("hands", []):
+            if 0 <= hx < 10 and 0 <= hy < 10:
+                grid[hy, hx, 4] = 1.0
+
+        return grid
 
     def _count_animals(self, farm):
         cows = 0
@@ -169,7 +222,7 @@ class KaggricultureNeurosymbolicEnv(gym.Env):
         # For Kaggriculture, we want to maximize our cash differential over the opponent.
         # We calculate the reward at the END of the macro-step.
         features = self._extract_features(self.current_state)
-        reward = features[2] - features[3] # My Cash - Opp Cash
+        reward = features["economy"][2] - features["economy"][3] # My Cash - Opp Cash
 
         # We set truncated to False to match the gymnasium API
         truncated = False
